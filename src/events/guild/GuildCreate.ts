@@ -18,7 +18,7 @@ export default class GuildCreat extends Event {
         owner?.send({ embeds: [new EmbedBuilder()
             .setColor("Green")
             .setDescription("✅ Orchid has been successfully added to your server!")
-            .setFooter({ text: "For the time being, Orchid can NOT announce posts in NSFW channels", iconURL: this.client.user?.displayAvatarURL() })
+            .setFooter({ text: "Self-hosted Orchid instance - works in all channel types", iconURL: this.client.user?.displayAvatarURL() })
         ]})
         .catch();
     }
