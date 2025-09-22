@@ -45,8 +45,15 @@ export default class Ready extends Event {
             console.log(`Success: Successfully set ${devCommands.length} Developer Application (/) Commands`)
         }
 
-        // Dynamic import for Jetstream
-        const { Jetstream } = await import("@skyware/jetstream");
+        // Dynamic import for Jetstream (ES Module)
+        let Jetstream: any;
+        try {
+            const jetstreamModule = await import("@skyware/jetstream");
+            Jetstream = jetstreamModule.Jetstream;
+        } catch (error) {
+            console.error("Failed to import Jetstream:", error);
+            return;
+        }
 
         // Register stream
         const stream = new Jetstream({
@@ -204,7 +211,7 @@ export default class Ready extends Event {
         for (const channel in channels)
         {
             //@ts-expect-error
-            const regex = channels[channel].regex == undefined ? channels[channel].regex == "" : channels[channel].regex;
+            const regex = channels[channel].regex == undefined || channels[channel].regex == "" ? "" : channels[channel].regex;
             //@ts-expect-error
             const message = channels[channel].message == undefined || channels[channel].message == "" ? "" : channels[channel].message + "\n";
             //@ts-expect-error
