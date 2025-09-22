@@ -20,6 +20,9 @@ export default class Ready extends Event {
         })
     }
 
+    // Keep a short-term cache of seen posts to avoid duplicate announcements
+    private seenPosts: Map<string, number> = new Map();
+
     async Execute() {
         configDotenv();
 
@@ -87,11 +90,15 @@ export default class Ready extends Event {
             });
 
             this.initJetstream(_stream);
+            // Re-apply wanted DIDs on the new stream
+            this.updateStreamDID(_stream);
         })
 
         // Main loop stuff
-        this.StatusLoop();
-        this.initJetstream(stream);
+    this.StatusLoop();
+    this.initJetstream(stream);
+    // Ensure Jetstream is actually tracking our subscribed DIDs
+    this.updateStreamDID(stream);
 
         //this.rebuildDB();
     }
@@ -162,15 +169,15 @@ export default class Ready extends Event {
                     await SubscriberConfigv2.deleteMany({ did: did });
                 }
 
-                if (stream.ws?.readyState !== WebSocket.OPEN)
-                {
+                // Start the stream if it isn't already open (1 = OPEN)
+                if (stream.ws?.readyState !== 1) {
                     stream.start();
                 }
                 
                 await sleep(100);
             }
 
-            console.log(stream.ws?.readyState === WebSocket.OPEN ? "Jetstream Websocket Status: Open" : "Jetstream Websocket Status: Closed");
+            console.log(stream.ws?.readyState === 1 ? "Jetstream Websocket Status: Open" : "Jetstream Websocket Status: Closed");
 
             console.log("Updating Jetstream \"wantedDids\"...")
             stream.updateOptions({ wantedDids: dids });
@@ -179,7 +186,9 @@ export default class Ready extends Event {
             console.error(err);
         }
 
-        this.updateStreamDID(stream);
+    // Refresh wanted DIDs periodically
+    await sleep(60_000);
+    this.updateStreamDID(stream);
     }
 
   async initJetstream(stream: any)
@@ -223,11 +232,32 @@ export default class Ready extends Event {
                 const gChannel = await this.client.channels.fetch(channel) as TextChannel;
                 if (await gChannel.guild.members.me?.permissionsIn(gChannel).has("SendMessages"))
                 {
-                    // Removed the @ts-expect-error comment here since it's not needed
-                    var match = regex != "" ? this.toRegExp(regex!).test(event.commit.record.text) : false;
+                    // Build a unique key for this post and drop duplicates within 10 minutes
+                    const rkey = event?.commit?.rkey as string | undefined;
+                    const postKey = rkey ? `${event.did}:${rkey}` : undefined;
+                    if (postKey) {
+                        const now = Date.now();
+                        const last = this.seenPosts.get(postKey);
+                        if (last && now - last < 10 * 60 * 1000) {
+                            // Duplicate detected; skip
+                            continue;
+                        }
+                        this.seenPosts.set(postKey, now);
+                        // Periodically prune old entries
+                        if (this.seenPosts.size > 2000) {
+                            const cutoff = now - 10 * 60 * 1000;
+                            for (const [k, t] of this.seenPosts) {
+                                if (t < cutoff) this.seenPosts.delete(k);
+                            }
+                        }
+                    }
+
+                    const record: any = event?.commit?.record ?? {};
+                    const text: string = typeof record?.text === "string" ? record.text : "";
+                    var match = regex != "" ? this.toRegExp(regex!).test(text) : false;
                     var safe: boolean;
 
-                    if (event.commit.record.hasOwnProperty("reply"))
+                    if (record && Object.prototype.hasOwnProperty.call(record, "reply"))
                     {
                         safe = replies;
                     }
