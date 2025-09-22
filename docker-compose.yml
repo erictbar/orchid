@@ -1,0 +1,36 @@
+version: '3.8'
+
+services:
+  orchid-bot:
+    build: .
+    container_name: orchid-bot
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+    env_file:
+      - .env
+    depends_on:
+      - mongodb
+    networks:
+      - orchid-network
+
+  mongodb:
+    image: mongo:latest
+    container_name: orchid-mongodb
+    restart: unless-stopped
+    ports:
+      - "27289:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=sdaf4567ak3ljhdskjhgd
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - orchid-network
+
+volumes:
+  mongodb_data:
+
+networks:
+  orchid-network:
+    driver: bridge
