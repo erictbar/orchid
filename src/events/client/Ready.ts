@@ -6,7 +6,7 @@ import { configDotenv } from "dotenv";
 import SubscriberConfig from "../../base/schemas/SubscriberConfig";
 import SubscriberConfigv2 from "../../base/schemas/SubscriberConfigv2";
 import axios from "axios";
-import { Jetstream } from "@skyware/jetstream";
+// Remove this line: import { Jetstream } from "@skyware/jetstream";
 import { atInfo, getDIDValidity, isValid } from "../../base/utility/atproto";
 import { ensureValidDid } from "@atproto/syntax";
 
@@ -44,6 +44,9 @@ export default class Ready extends Event {
     
             console.log(`Success: Successfully set ${devCommands.length} Developer Application (/) Commands`)
         }
+
+        // Dynamic import for Jetstream
+        const { Jetstream } = await import("@skyware/jetstream");
 
         // Register stream
         const stream = new Jetstream({
@@ -86,91 +89,10 @@ export default class Ready extends Event {
         //this.rebuildDB();
     }
 
-    async rebuildDB()
+    // Update the type annotations for Jetstream parameters
+    async updateStreamDID(stream: any) // Changed from Jetstream to any
     {
-        const db = await SubscriberConfig.find({});
-
-        interface IDictionary {
-            [index: string]: Object;
-        }
-
-        var newDB = {} as IDictionary;
-        
-        // For every guild
-        for (const i in db)
-        {
-            const props = JSON.parse(db[i].props);
-
-            // Check every channel
-            for (const channel in props)
-            {
-                // And for every user in that channel
-                for (const user in props[channel])
-                {
-                    var did: string;
-                    try {
-                        // Get and set DID for user
-                        await new Promise(async (resolve, reject) => {
-                            const timeoutId = setTimeout(() => {
-                                reject(new Error(`Timed out request for ${user}`))
-                            }, 2000);
-
-                            var didReq;
-                            try {
-                                didReq = await axios.get(`https://api.bsky.app/xrpc/app.bsky.actor.getProfile?actor=${user}`);
-
-                                //console.log(didReq.data.did);
-                                did = didReq.data.did;
-                            } catch (err) {
-                                console.error(err);
-
-                                //@ts-expect-error
-                                if (err.response?.status == 400)
-                                {
-                                    reject(new Error(`Invalid User`));
-                                }
-                            }
-
-                            clearTimeout(timeoutId);
-                            resolve(didReq);
-                        });
-
-                    } catch (err) {
-                        console.error(err);
-                        continue;
-                    }
-
-                    newDB[did!] = {
-                        ...newDB[did!],
-                        [channel]: {
-                            message: props[channel][user].message,
-                            replies: props[channel][user].replies,
-                            embed: props[channel][user].embedProvider,
-                            regex: props[channel][user].regex
-                        }
-                    }
-
-                    console.log(did!);
-                }
-            }
-        }
-
-        console.log(newDB);
-
-        for (const did in newDB)
-        {
-            if (!await SubscriberConfigv2.exists({ did: did }))
-            {
-                console.log("Updating database for: " + did);
-                await SubscriberConfigv2.create({ did: did, props: newDB[did] });
-            }
-        }
-
-        console.log("Finished Migrating Database");
-    }
-
-    async updateStreamDID(stream: Jetstream)
-    {
+        // ... rest of your updateStreamDID method stays the same
         const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
         interface IDictionary {
@@ -253,103 +175,103 @@ export default class Ready extends Event {
         this.updateStreamDID(stream);
     }
 
-    async initJetstream(stream: Jetstream)
-    {
-        interface IDictionary {
-            [index: string]: Object;
+  async initJetstream(stream: any)
+{
+    interface IDictionary {
+        [index: string]: Object;
+    }
+
+    stream.onCreate("app.bsky.feed.post", async (event: any) => { // Added ': any' type annotation
+        try {
+            ensureValidDid(event.did);
+        } catch (err) {
+            console.warn("Invalid handle: " + event.did + " - Skipping");
+            return;
         }
 
-        stream.onCreate("app.bsky.feed.post", async (event) => {
+        if (await SubscriberConfigv2.exists({ did: event.did }))
+        {
+            console.log("Got new post for: " + event.did);
+        }
+        else {
+            return;
+        }
+
+        const user = await SubscriberConfigv2.findOne({ did: event.did });
+
+        const channels = user?.props as unknown as IDictionary;
+        
+        for (const channel in channels)
+        {
+            //@ts-expect-error
+            const regex = channels[channel].regex == undefined ? channels[channel].regex == "" : channels[channel].regex;
+            //@ts-expect-error
+            const message = channels[channel].message == undefined || channels[channel].message == "" ? "" : channels[channel].message + "\n";
+            //@ts-expect-error
+            const replies = channels[channel].replies == undefined ? false : channels[channel].replies;
+            //@ts-expect-error
+            const embed = channels[channel].embed == undefined || channels[channel].embed == "" ? "bskye.app" : channels[channel].embed;
+
             try {
-                ensureValidDid(event.did);
-            } catch (err) {
-                console.warn("Invalid handle: " + event.did + " - Skipping");
-                return;
-            }
+                const gChannel = await this.client.channels.fetch(channel) as TextChannel;
+                if (await gChannel.guild.members.me?.permissionsIn(gChannel).has("SendMessages"))
+                {
+                    // Removed the @ts-expect-error comment here since it's not needed
+                    var match = regex != "" ? this.toRegExp(regex!).test(event.commit.record.text) : false;
+                    var safe: boolean;
 
-            if (await SubscriberConfigv2.exists({ did: event.did }))
-            {
-                console.log("Got new post for: " + event.did);
-            }
-            else {
-                return;
-            }
-
-            const user = await SubscriberConfigv2.findOne({ did: event.did });
-
-            const channels = user?.props as unknown as IDictionary;
-            
-            for (const channel in channels)
-            {
-                //@ts-expect-error
-                const regex = channels[channel].regex == undefined ? channels[channel].regex == "" : channels[channel].regex;
-                //@ts-expect-error
-                const message = channels[channel].message == undefined || channels[channel].message == "" ? "" : channels[channel].message + "\n";
-                //@ts-expect-error
-                const replies = channels[channel].replies == undefined ? false : channels[channel].replies;
-                //@ts-expect-error
-                const embed = channels[channel].embed == undefined || channels[channel].embed == "" ? "bskye.app" : channels[channel].embed;
-
-                try {
-                    const gChannel = await this.client.channels.fetch(channel) as TextChannel;
-                    if (await gChannel.guild.members.me?.permissionsIn(gChannel).has("SendMessages"))
+                    if (event.commit.record.hasOwnProperty("reply"))
                     {
-                        //@ts-expect-error
-                        var match = regex != "" ? this.toRegExp(regex!).test(event.commit.record.text) : false;
-                        var safe: boolean;
-
-                        if (event.commit.record.hasOwnProperty("reply"))
-                        {
-                            safe = replies;
-                        }
-                        else
-                        {
-                            safe = true;
-                        }
-
-                        // Exclude for match
-                        if (!match && safe) {
-                            console.info(`Sending announcement message for ${event.did}...`);
-                            try {
-                                await gChannel.send(`${message}https://${embed}/profile/${event.did}/post/${event.commit.rkey}`);
-                            } catch (err) {
-                                const owner = await gChannel.guild.fetchOwner()
-                                try {
-                                    await owner?.send({
-                                        embeds: [new EmbedBuilder()
-                                            .setColor("Red")
-                                            .setDescription("❌ Orchid tried to send an announcement but something went wrong!  Please make sure Orchid has necessary permissions, and try again.")
-                                        ]
-                                    });
-                                } catch (err) {
-                                    console.error(err);
-                                }
-                            }
-                            console.log(`Sent announcement message for ${event.did}...`);
-                        }
+                        safe = replies;
                     }
                     else
                     {
-                        const owner = await gChannel.guild.fetchOwner()
-                        try {
-                            await owner?.send({
-                                embeds: [new EmbedBuilder()
-                                    .setColor("Red")
-                                    .setDescription("❌ Orchid tried to send an announcement but it doesn't have permission!  Please make sure Orchid has necessary permissions, and try again.")
-                                ]
-                            });
-                        } catch (err) {
-                            console.error(err);
-                        }
+                        safe = true;
                     }
-                } catch (err) {
-                    console.error(err);
-                }
-            }
-        })
 
-        stream.start();
-    }
+                    // Exclude for match
+                    if (!match && safe) {
+                        console.info(`Sending announcement message for ${event.did}...`);
+                        try {
+                            await gChannel.send(`${message}https://${embed}/profile/${event.did}/post/${event.commit.rkey}`);
+                        } catch (err) {
+                            const owner = await gChannel.guild.fetchOwner()
+                            try {
+                                await owner?.send({
+                                    embeds: [new EmbedBuilder()
+                                        .setColor("Red")
+                                        .setDescription("❌ Orchid tried to send an announcement but something went wrong!  Please make sure Orchid has necessary permissions, and try again.")
+                                    ]
+                                });
+                            } catch (err) {
+                                console.error(err);
+                            }
+                        }
+                        console.log(`Sent announcement message for ${event.did}...`);
+                    }
+                }
+                else
+                {
+                    const owner = await gChannel.guild.fetchOwner()
+                    try {
+                        await owner?.send({
+                            embeds: [new EmbedBuilder()
+                                .setColor("Red")
+                                .setDescription("❌ Orchid tried to send an announcement but it doesn't have permission!  Please make sure Orchid has necessary permissions, and try again.")
+                            ]
+                        });
+                    } catch (err) {
+                        console.error(err);
+                    }
+                }
+            } catch (err) {
+                console.error(err);
+            }
+        }
+    })
+
+    stream.start();
+}
 
     // Helper function for commands
     private GetJson(commands: Collection<string, Command>): object[] {
