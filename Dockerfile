@@ -3,7 +3,8 @@ WORKDIR /app
 
 # Install dependencies
 COPY package*.json ./
-RUN npm ci
+# Prefer clean install; fall back to install if lockfile is temporarily out of sync
+RUN npm ci || npm install --no-audit --no-fund
 
 # Build stage
 FROM base AS build
@@ -15,7 +16,8 @@ FROM node:20-alpine AS runtime
 WORKDIR /app
 ENV NODE_ENV=production
 COPY package*.json ./
-RUN npm ci --only=production
+# Prefer clean production install; fall back if lockfile is out of sync
+RUN npm ci --only=production || npm install --only=production --no-audit --no-fund
 COPY --from=build /app/build ./build
 COPY --from=build /app/assets ./assets
 COPY --from=build /app/README.md ./README.md

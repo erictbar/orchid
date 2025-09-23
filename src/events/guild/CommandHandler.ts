@@ -18,20 +18,39 @@ export default class CommandHandler extends Event {
 
         if (!interaction.isChatInputCommand()) return;
 
-        const command: Command = this.client.commands.get(interaction.commandName)!;
+    const command: Command = this.client.commands.get(interaction.commandName)!;
 
         console.log("Received command: " + interaction.commandName);
 
-        await interaction.deferReply({ephemeral: command.ephemeral});
+        // Defer quickly; use ephemeral option supported by discord.js v14
+        try {
+            if (!interaction.deferred && !interaction.replied) {
+                await interaction.deferReply({ ephemeral: !!command?.ephemeral });
+            }
+        } catch (err: any) {
+            const code = err?.code ?? err?.status;
+            if (code === 10062 /* Unknown interaction */) {
+                console.warn(`Ignoring unknown/expired interaction for command '${interaction.commandName}'.`);
+                return;
+            }
+            console.error("Failed to defer reply:", err);
+            return;
+        }
 
-        //@ts-expect-error
-        if (!command) return interaction.editReply({ content: "This command does not exist!" }) && this.client.commands.delete(interaction.commandName);
+        if (!command) {
+            try { await interaction.editReply({ content: "This command does not exist!" }); } catch {}
+            this.client.commands.delete(interaction.commandName);
+            return;
+        }
 
-        if (command.dev && !process.env.devUID.includes(interaction.user.id))
-            return interaction.editReply({ embeds: [new EmbedBuilder()
-                .setColor("Red")
-                .setDescription(`❌ This command is only available to developers.`)
-            ]})
+        if (command.dev && !process.env.devUID.includes(interaction.user.id)) {
+            try {
+                return await interaction.editReply({ embeds: [new EmbedBuilder()
+                    .setColor("Red")
+                    .setDescription(`❌ This command is only available to developers.`)
+                ]});
+            } catch { return; }
+        }
 
         const { cooldowns } = this.client;
         if (!cooldowns.has(command.name)) cooldowns.set(command.name, new Collection());
@@ -40,13 +59,16 @@ export default class CommandHandler extends Event {
         const timestamps = cooldowns.get(command.name)!;
         const cooldownAmount = (command.cooldown || 3) * 1000;
 
-        if (timestamps.has(interaction.user.id) && (now < (timestamps.get(interaction.user.id) || 0) + cooldownAmount))
-            return interaction.editReply({
-                embeds: [new EmbedBuilder()
-                    .setColor("Red")
-                    .setDescription(`❌ Please wait another \`${((((timestamps.get(interaction.user.id) || 0) + cooldownAmount) - now) / 1000).toFixed(1)}\` seconds to run this command.`)
-                ]
-            });
+        if (timestamps.has(interaction.user.id) && (now < (timestamps.get(interaction.user.id) || 0) + cooldownAmount)) {
+            try {
+                return await interaction.editReply({
+                    embeds: [new EmbedBuilder()
+                        .setColor("Red")
+                        .setDescription(`❌ Please wait another \`${((((timestamps.get(interaction.user.id) || 0) + cooldownAmount) - now) / 1000).toFixed(1)}\` seconds to run this command.`)
+                    ]
+                });
+            } catch { return; }
+        }
         
         timestamps.set(interaction.user.id, now);
         setTimeout(() => timestamps.delete(interaction.user.id), cooldownAmount);

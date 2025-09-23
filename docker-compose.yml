@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   orchid-bot:
     build: .
@@ -8,8 +6,11 @@ services:
     environment:
       - NODE_ENV=production
       - mongoURL=mongodb://mongodb:27017/orchid?directConnection=true
-    env_file:
-      - .env
+      # Explicitly pass only required secrets/settings to avoid conflicting mongoURL from .env
+      - token=${token}
+      - discordClientID=${discordClientID}
+      - devGuildID=${devGuildID}
+      - devUID=${devUID}
     depends_on:
       mongodb:
         condition: service_healthy
@@ -31,7 +32,7 @@ services:
       start_period: 10s
     volumes:
       - orchid-mongo-data:/data/db
-      - ./mongo-init.d/init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+      - ./mongo-init.d:/docker-entrypoint-initdb.d:ro
     networks:
       - orchid-network
 
