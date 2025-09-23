@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  orchid-bot:
+    build: .
+    container_name: orchid-bot
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - mongoURL=mongodb://mongodb:27017/orchid?directConnection=true
+    env_file:
+      - .env
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - orchid-network
+
+  mongodb:
+    image: mongo:latest
+    container_name: orchid-mongodb
+    restart: unless-stopped
+    ports:
+      - "27289:27017"
+    # No environment variables -> start without authentication
+    healthcheck:
+      test: ["CMD-SHELL", "mongosh --quiet --eval 'db.runCommand({ ping: 1 })' || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    volumes:
+      - orchid-mongo-data:/data/db
+      - ./mongo-init.d/init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
+    networks:
+      - orchid-network
+
+networks:
+  orchid-network:
+    driver: bridge
+
+volumes:
+  orchid-mongo-data:

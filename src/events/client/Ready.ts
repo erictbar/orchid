@@ -6,7 +6,7 @@ import { configDotenv } from "dotenv";
 import SubscriberConfig from "../../base/schemas/SubscriberConfig";
 import SubscriberConfigv2 from "../../base/schemas/SubscriberConfigv2";
 import axios from "axios";
-import { Jetstream } from "@skyware/jetstream";
+import WebSocket from "ws";
 import { atInfo, getDIDValidity, isValid } from "../../base/utility/atproto";
 import { ensureValidDid } from "@atproto/syntax";
 
@@ -45,9 +45,21 @@ export default class Ready extends Event {
             console.log(`Success: Successfully set ${devCommands.length} Developer Application (/) Commands`)
         }
 
+        // Dynamic import Jetstream (ESM) safely at runtime
+        let Jetstream: any;
+        try {
+            const dynamicImport = new Function("m", "return import(m)") as (m: string) => Promise<any>;
+            const mod = await dynamicImport("@skyware/jetstream");
+            Jetstream = mod.Jetstream;
+        } catch (error) {
+            console.error("Failed to import Jetstream:", error);
+            return;
+        }
+
         // Register stream
         const stream = new Jetstream({
             endpoint: "wss://jetstream2.us-east.bsky.network/subscribe",
+            ws: WebSocket,
         });
 
         stream.on("open", async (event: any) => {
@@ -66,6 +78,7 @@ export default class Ready extends Event {
             // Register stream
             const _stream = new Jetstream({
                 endpoint: "wss://jetstream2.us-east.bsky.network/subscribe",
+                ws: WebSocket,
             });
 
             _stream.on("open", async (event: any) => {
@@ -169,7 +182,7 @@ export default class Ready extends Event {
         console.log("Finished Migrating Database");
     }
 
-    async updateStreamDID(stream: Jetstream)
+    async updateStreamDID(stream: any)
     {
         const sleep = (ms: number) => new Promise((res) => setTimeout(res, ms));
 
@@ -253,13 +266,13 @@ export default class Ready extends Event {
         this.updateStreamDID(stream);
     }
 
-    async initJetstream(stream: Jetstream)
+    async initJetstream(stream: any)
     {
         interface IDictionary {
             [index: string]: Object;
         }
 
-        stream.onCreate("app.bsky.feed.post", async (event) => {
+    stream.onCreate("app.bsky.feed.post", async (event: any) => {
             try {
                 ensureValidDid(event.did);
             } catch (err) {
@@ -282,20 +295,19 @@ export default class Ready extends Event {
             for (const channel in channels)
             {
                 //@ts-expect-error
-                const regex = channels[channel].regex == undefined ? channels[channel].regex == "" : channels[channel].regex;
+                const regex = channels[channel].regex == undefined || channels[channel].regex == "" ? "" : channels[channel].regex;
                 //@ts-expect-error
                 const message = channels[channel].message == undefined || channels[channel].message == "" ? "" : channels[channel].message + "\n";
                 //@ts-expect-error
                 const replies = channels[channel].replies == undefined ? false : channels[channel].replies;
                 //@ts-expect-error
-                const embed = channels[channel].embed == undefined || channels[channel].embed == "" ? "bskye.app" : channels[channel].embed;
+                const embed = channels[channel].embed == undefined || channels[channel].embed == "" ? "bsky.app" : channels[channel].embed;
 
                 try {
                     const gChannel = await this.client.channels.fetch(channel) as TextChannel;
                     if (await gChannel.guild.members.me?.permissionsIn(gChannel).has("SendMessages"))
                     {
-                        //@ts-expect-error
-                        var match = regex != "" ? this.toRegExp(regex!).test(event.commit.record.text) : false;
+                        var match = regex != "" ? this.toRegExp(regex).test(event.commit.record.text) : false;
                         var safe: boolean;
 
                         if (event.commit.record.hasOwnProperty("reply"))
